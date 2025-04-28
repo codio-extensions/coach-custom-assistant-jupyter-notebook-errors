@@ -2,14 +2,6 @@
 // (ensures all global variables set in this extension cannot be referenced outside its scope)
 (async function(codioIDE, window) {
   
-  codioIDE.onErrorState((isError, error) => {
-    console.log('codioIDE.onErrorState', {isError, error})
-    if (isError) {
-      codioIDE.coachBot.showTooltip("I can help explain this error...", () => {
-        codioIDE.coachBot.open({id: "customErrorExplanationJupyter", params: "tooltip"})
-      })
-    }
-  })  
    const systemPrompt = `You will be given a programming error message. Your task is to explain in plain, non-technical English what is causing the error, without suggesting any potential fixes or solutions.
 
 If provided with the programming assignment and the student's current code state, please carefully review them before explaining the error message.
