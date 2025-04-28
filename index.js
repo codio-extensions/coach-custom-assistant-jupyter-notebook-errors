@@ -2,6 +2,14 @@
 // (ensures all global variables set in this extension cannot be referenced outside its scope)
 (async function(codioIDE, window) {
   
+  codioIDE.onErrorState((isError, error) => {
+    console.log('codioIDE.onErrorState', {isError, error})
+    if (isError) {
+      codioIDE.coachBot.showTooltip("I can help explain this error...", () => {
+        codioIDE.coachBot.open({id: "customErrorExplanationJupyter", params: "tooltip"})
+      })
+    }
+  })  
    const systemPrompt = `You will be given a programming error message. Your task is to explain in plain, non-technical English what is causing the error, without suggesting any potential fixes or solutions.
 
 If provided with the programming assignment and the student's current code state, please carefully review them before explaining the error message.
@@ -12,7 +20,7 @@ When referring to code in your explanation, please use markdown syntax. Wrap inl
   `
   
   // register(id: unique button id, name: name of button visible in Coach, function: function to call when button is clicked) 
-  codioIDE.coachBot.register("customErrorExplanationRStudio", "Explain this R error!", onButtonPress)
+  codioIDE.coachBot.register("customErrorExplanationJupyter", "Explain this Jupyter error!", onButtonPress)
 
   // function called when I have a question button is pressed
   async function onButtonPress() {
@@ -26,24 +34,31 @@ When referring to code in your explanation, please use markdown syntax. Wrap inl
     let filetree = await codioIDE.files.getStructure()
     // console.log("filetree", filetree)
     
-    // recursively search filetree for files with specific extension
-    async function getFilesWithExtension(obj, extension) {
+    // recursively search filetree for files with specific extension, ignoring files in specified dirs
+    async function getFilesWithExtension(obj, extension, ignoredDirectories = []) {
         const files = {};
 
         async function traverse(path, obj) {
             for (const key in obj) {
+                // Check if the current directory should be ignored
                 if (typeof obj[key] === 'object') {
-                  // appending next object to traverse to path
-                  await traverse(path + "/" + key, obj[key]);
-                } else if (obj[key] === 1 && key.toLowerCase().endsWith(extension)) {
+                    // Skip if the current directory is in the ignored list
+                    if (ignoredDirectories.includes(key)) {
+                        continue;
+                    }
                     
+                    // Recursively traverse the directory
+                    await traverse(path + "/" + key, obj[key]);
+                } 
+                // Check for files with the specified extension
+                else if (obj[key] === 1 && key.toLowerCase().endsWith(extension)) {
                     let filepath = path + "/" + key
-                    // removed the first / from filepath
+                    // Remove the first / from filepath
                     filepath = filepath.substring(1)
                     const fileContent = await codioIDE.files.getContent(filepath)
                     files[key] = fileContent
                 }
-                }
+            }
         }
 
         await traverse("", obj);
@@ -51,7 +66,7 @@ When referring to code in your explanation, please use markdown syntax. Wrap inl
     }
 
     // retrieve files and file content with specific extension
-    const files = await getFilesWithExtension(filetree, '.rmd')
+    const files = await getFilesWithExtension(filetree, '.ipynb', ['.ipynb_checkpoints'])
 
     let student_files = ""
 
@@ -62,7 +77,7 @@ When referring to code in your explanation, please use markdown syntax. Wrap inl
         file content: 
         ${files[filename]}\n\n\n`)
     }
-    // console.log(student_files)
+    console.log(student_files)
 
     try {
         input = await codioIDE.coachBot.input("Please paste the error message you want me to explain!")
@@ -108,12 +123,11 @@ If it is not a traditional error message, only answer "Yes" if it sounds like it
     if (validation_result.result.includes("Yes")) {
         //Define your assistant's userPrompt - this is where you will provide all the context you collected along with the task you want the LLM to generate text for.
         const userPrompt = `Here is the error message:
-
 <error_message>
 ${input}
 </error_message>
- Here is the description of the programming assignment the student is working on:
 
+Here is the description of the programming assignment the student is working on:
 <assignment>
 ${context.guidesPage.content}
 </assignment>
@@ -125,6 +139,16 @@ ${student_files}
 </code> 
 
 If <assignment> and <code> are empty, assume that they're not available. 
+
+If the file extension in <student_files> is ".ipynb", it is a Jupyter Notebook.
+Here's the information you'll be given about the cells in the Jupyter Notebook:
+
+For each cell:
+1. "cell_type" - whether it is a code cell, markdown cell, etc.
+2. "execution_count" - The execution count of this cell in the notebook
+3. "metadata" - Any additional meta data relevant to this cell
+4. "outputs" -  If the cell eas executed or run, the output will be here
+5. "source" - This is the actual content of the cell
 
 Phrase your explanation directly addressing the student as 'you'. 
 After writing your explanation in 2-3 sentences, double check that it does not suggest any fixes or solutions. 
